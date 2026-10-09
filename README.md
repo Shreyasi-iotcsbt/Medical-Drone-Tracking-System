@@ -160,7 +160,7 @@ This project currently demonstrates a **software-based simulation**, not the ope
 
 ## 👩‍💻 Author
 
-**Shreyasi Ghosh**
+**Shreyasi Ghosh, Sharanya Mukherjee**
 
 GitHub: [@Shreyasi-iotcsbt](https://github.com/Shreyasi-iotcsbt)
 
