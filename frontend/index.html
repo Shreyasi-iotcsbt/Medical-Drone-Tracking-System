@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Medical Drone Tracker | Simulation</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: Inter,Segoe UI,Arial,sans-serif; background:#0a1020; color:#eaf0ff; }
+  header { padding:18px 22px; background:#111b31; border-bottom:1px solid #283753; display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+  h1 { font-size:21px; margin:0 0 4px; }
+  .sub { color:#9fb0cf; font-size:13px; }
+  .tag { border:1px solid #41618b; color:#9dd5ff; padding:6px 10px; border-radius:20px; font-size:12px; }
+  main { padding:16px; max-width:1500px; margin:auto; }
+  .layout { display:grid; grid-template-columns:minmax(0,1.7fr) minmax(280px,1fr); gap:14px; }
+  .panel { background:#111b2e; border:1px solid #263550; border-radius:14px; padding:14px; min-width:0; }
+  #mapWrap { position:relative; height:64vh; min-height:420px; border-radius:10px; overflow:hidden; background:#0b1425; }
+  #map { width:100%; height:100%; display:block; }
+  #mapInfo { position:absolute; right:8px; bottom:6px; font-size:11px; color:#9fb0cf; background:rgba(10,16,32,.7); padding:2px 6px; border-radius:4px; }
+  .controls { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; align-items:center; }
+  button, select { border:1px solid #45618b; background:#1c3151; color:#f3f7ff; padding:10px 12px; border-radius:8px; cursor:pointer; font-weight:600; font-size:14px; }
+  button:hover { background:#29466e; } button:disabled { opacity:.45; cursor:not-allowed; }
+  .primary { background:#087e8b; border-color:#12a5b5; }
+  .danger { background:#6c2635; border-color:#a8465a; }
+  .metrics { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-top:12px; }
+  .metric { background:#0b1425; border:1px solid #263550; border-radius:10px; padding:11px; }
+  .metric small { display:block; color:#9fb0cf; margin-bottom:6px; }
+  .metric strong { font-size:16px; overflow-wrap:anywhere; }
+  .section-title { font-size:15px; margin:0 0 10px; }
+  #alert { padding:11px; border-radius:9px; background:#17243b; border:1px solid #344966; color:#c6e7ff; line-height:1.45; }
+  #alert.warning { background:#42202a; border-color:#a64b5b; color:#ffd6dc; }
+  #alert.caution { background:#3b2e18; border-color:#7a5a22; color:#ffd9a0; }
+  #checkpoints { display:grid; gap:7px; }
+  .checkpoint { display:flex; justify-content:space-between; gap:8px; padding:9px; border-radius:8px; background:#0b1425; border:1px solid #263550; }
+  .ok { color:#79e2b2; } .pending { color:#a6b5d0; }
+  .note { color:#9fb0cf; font-size:12px; line-height:1.5; margin-top:12px; }
+  label.sp { color:#9fb0cf; font-size:13px; display:flex; align-items:center; gap:6px; margin-left:auto; }
+  .bat-bar { height:12px; background:#0b1425; border:1px solid #263550; border-radius:7px; overflow:hidden; margin-top:8px; }
+  .bat-fill { height:100%; width:100%; background:#21c58b; transition:width .2s, background .2s; }
+  .params { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-top:12px; }
+  .params label { display:flex; flex-direction:column; gap:4px; font-size:12px; color:#9fb0cf; }
+  .params input { background:#0b1425; border:1px solid #344966; color:#eaf0ff; border-radius:6px; padding:8px; font-size:14px; width:100%; }
+  @media(max-width:850px) { .layout { grid-template-columns:1fr; } #mapWrap { height:52vh; min-height:330px; } }
+</style>
+</head>
+<body>
+<header>
+  <div><h1>Medical Drone Tracking System</h1><div class="sub">A → B → C → D · outbound + return · simulation only</div></div>
+  <div class="tag">SIMULATED GPS — NOT A REAL DRONE</div>
+</header>
+<main>
+<div class="layout">
+  <section class="panel">
+    <div id="mapWrap"><canvas id="map" aria-label="Drone route map"></canvas><div id="mapInfo">Offline route map</div></div>
+    <div class="controls">
+      <button class="primary" id="startBtn">▶ Start mission</button>
+      <button id="pauseBtn" disabled>Ⅱ Pause</button>
+      <button id="resetBtn">↻ Reset</button>
+      <button class="danger" id="deviationBtn">Test route deviation</button>
+      <label class="sp">Sim speed
+        <select id="scaleSel">
+          <option value="10">10×</option><option value="30" selected>30×</option>
+          <option value="60">60×</option><option value="120">120×</option>
+        </select>
+      </label>
+    </div>
+    <p class="note">Named demo stops: Dum Dum Hospital → Chinar Park → Sector V → Peerless Hospital (Garia area), then return. The map is drawn by the page itself, so the route and drone always display. If you are online, OpenStreetMap tiles are loaded behind it as a bonus; if not, you simply see the grid. Coordinates are approximate demo points, not a validated or permitted flight route.</p>
+  </section>
+  <aside style="display:grid;gap:14px;align-content:start">
+    <section class="panel">
+      <h2 class="section-title">Mission status</h2>
+      <div id="alert">Ready. Press "Start mission".</div>
+      <div class="metrics">
+        <div class="metric"><small>Journey</small><strong id="journey">Outbound</strong></div>
+        <div class="metric"><small>Speed (simulated)</small><strong id="speed">0.0 m/s</strong></div>
+        <div class="metric"><small>Latitude</small><strong id="lat">—</strong></div>
+        <div class="metric"><small>Longitude</small><strong id="lon">—</strong></div>
+        <div class="metric"><small>Altitude (simulated)</small><strong id="altitude">0 m</strong></div>
+        <div class="metric"><small>Route length (one way)</small><strong id="distance">—</strong></div>
+        <div class="metric"><small>Distance covered</small><strong id="covered">0 m</strong></div>
+        <div class="metric"><small>Progress</small><strong id="progress">0%</strong></div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2 class="section-title">Battery &amp; drain</h2>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+        <strong id="batPct" style="font-size:24px">100%</strong>
+        <span class="sub" id="batWh">—</span>
+      </div>
+      <div class="bat-bar"><div class="bat-fill" id="batFill"></div></div>
+      <div class="metrics">
+        <div class="metric"><small>Current power draw</small><strong id="powerNow">—</strong></div>
+        <div class="metric"><small>Drain rate</small><strong id="drainRate">—</strong></div>
+        <div class="metric"><small>Est. flight time left</small><strong id="timeLeft">—</strong></div>
+        <div class="metric"><small>Energy needed to finish</small><strong id="needWh">—</strong></div>
+      </div>
+      <div class="params">
+        <label>Battery capacity (Wh)<input id="pCap" type="number" min="20" step="10" value="200"></label>
+        <label>Cruise power (W)<input id="pCruise" type="number" min="10" step="5" value="150"></label>
+        <label>Payload extra power (W)<input id="pPayload" type="number" min="0" step="5" value="20"></label>
+        <label>Wind / headwind extra (%)<input id="pWind" type="number" min="0" max="100" step="5" value="0"></label>
+        <label>Drain multiplier (×)<input id="pDrain" type="number" min="0.1" max="10" step="0.1" value="1"></label>
+        <label>Starting battery (%)<input id="pStart" type="number" min="5" max="100" step="5" value="100"></label>
+        <label>Low battery warning (%)<input id="pLow" type="number" min="5" max="60" step="5" value="30"></label>
+        <label>Critical reserve (%)<input id="pCrit" type="number" min="1" max="40" step="1" value="15"></label>
+      </div>
+      <p class="note">Drain model: energy used (Wh) = power (W) × drain multiplier × simulated flight time ÷ 3600. Power = cruise × (1 + wind %) + payload extra (while carrying the package) + 25% extra during a deviation test. Parameters can be changed live; "Starting battery" applies on Reset. Values are illustrative.</p>
+    </section>
+    <section class="panel">
+      <h2 class="section-title">Checkpoint tracking</h2>
+      <div id="checkpoints"></div>
+    </section>
+    <section class="panel">
+      <h2 class="section-title">Medical package</h2>
+      <p class="sub">Pickup at A is simulated. At D, confirm handover to complete the delivery record.</p>
+      <div id="packageStatus">Pickup at A: pending · Handover at D: pending</div>
+      <div class="controls"><button id="handoverBtn" disabled>Confirm handover at D</button></div>
+    </section>
+    <section class="panel">
+      <h2 class="section-title">Latest GPS update</h2>
+      <div id="updated" class="sub">No update yet</div>
+      <div id="missionEnd" class="sub" style="margin-top:8px"></div>
+    </section>
+  </aside>
+</div>
+<p class="note">This demo does not control a drone. It is not suitable for medical logistics or real flight decisions. Package handover is a manual simulated event, not proof of physical delivery.</p>
+</main>
+<script>
+/* ---------- Route ---------- */
+const ROUTE = [
+  { name:"A", label:"Dum Dum Municipal Specialized Hospital (launch)", lat:22.639032, lon:88.415093 },
+  { name:"B", label:"Chinar Park checkpoint",                          lat:22.607500, lon:88.447000 },
+  { name:"C", label:"Sector V checkpoint",                             lat:22.573600, lon:88.433100 },
+  { name:"D", label:"Peerless Hospital (Garia area)",                  lat:22.480000, lon:88.393000 }
+];
+const PATH = [...ROUTE, ...ROUTE.slice(0,3).reverse()];
+const SPEED = 12, ALTITUDE = 30, DEVIATION_LIMIT = 100, DEVIATION_LAT = 0.0028;
+
+function haversine(a,b){
+  const R=6371000, r=Math.PI/180, dLat=(b.lat-a.lat)*r, dLon=(b.lon-a.lon)*r;
+  const x=Math.sin(dLat/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(x));
+}
+const cum=[0];
+for(let i=1;i<PATH.length;i++) cum.push(cum[i-1]+haversine(PATH[i-1],PATH[i]));
+const TOTAL=cum[cum.length-1], ONE_WAY=cum[3];
+function positionAt(d){
+  d=Math.max(0,Math.min(TOTAL,d));
+  for(let i=1;i<cum.length;i++){
+    if(d<=cum[i]){
+      const t=(d-cum[i-1])/(cum[i]-cum[i-1]||1);
+      return { lat:PATH[i-1].lat+(PATH[i].lat-PATH[i-1].lat)*t, lon:PATH[i-1].lon+(PATH[i].lon-PATH[i-1].lon)*t };
+    }
+  }
+  return { lat:PATH[0].lat, lon:PATH[0].lon };
+}
+
+/* ---------- State ---------- */
+const $=id=>document.getElementById(id);
+const setText=(id,t)=>{ $(id).textContent=t; };
+const S={ dist:0, running:false, deviation:false, complete:false, visited:new Set(),
+          handover:false, pickedUp:false, lastTick:0, usedWh:0, failed:false, trail:[], tickAt:null };
+const num=(id,d)=>{ const v=parseFloat($(id).value); return isFinite(v)&&v>=0?v:d; };
+function params(){
+  return { cap:Math.max(1,num("pCap",200)), cruise:num("pCruise",150), payload:num("pPayload",20),
+           wind:num("pWind",0), low:num("pLow",30), crit:num("pCrit",15),
+           drain:Math.max(0.1,num("pDrain",1)), start:Math.min(100,Math.max(1,num("pStart",100))) };
+}
+function powerNow(){
+  const p=params(), carrying=S.pickedUp&&!S.handover;
+  return (p.cruise*(1+p.wind/100)+(carrying?p.payload:0)+(S.deviation?p.cruise*0.25:0))*p.drain;
+}
+const startWh=()=>{ const p=params(); return p.cap*p.start/100; };
+const remainingWh=()=>Math.max(0,startWh()-S.usedWh);
+const fmtTime=s=>{ if(!isFinite(s)) return "—"; s=Math.max(0,Math.round(s)); return `${Math.floor(s/60)} min ${String(s%60).padStart(2,"0")} s`; };
+
+/* ---------- Map (canvas, offline-first, optional OSM tiles) ---------- */
+const TZ=13, WORLD=256*Math.pow(2,TZ);
+function proj(lat,lon){
+  const s=Math.sin(lat*Math.PI/180);
+  return { x:(lon+180)/360*WORLD, y:(0.5-Math.log((1+s)/(1-s))/(4*Math.PI))*WORLD };
+}
+const pts=[...ROUTE.map(p=>proj(p.lat,p.lon)), proj(ROUTE[0].lat+DEVIATION_LAT+0.002,ROUTE[0].lon), proj(ROUTE[3].lat-0.002,ROUTE[3].lon)];
+const bx0=Math.min(...pts.map(p=>p.x)), bx1=Math.max(...pts.map(p=>p.x));
+const by0=Math.min(...pts.map(p=>p.y)), by1=Math.max(...pts.map(p=>p.y));
+const cvs=$("map"), ctx=cvs.getContext("2d");
+let W=0,H=0,K=1,OX=0,OY=0,DPR=1;
+const tiles=new Map(); let tilesOK=0, tilesBad=0;
+function resize(){
+  const r=cvs.parentElement.getBoundingClientRect();
+  DPR=window.devicePixelRatio||1; W=r.width; H=r.height;
+  cvs.width=W*DPR; cvs.height=H*DPR;
+  const pad=40, sx=(W-2*pad)/(bx1-bx0), sy=(H-2*pad)/(by1-by0);
+  K=Math.min(sx,sy);
+  OX=(bx0+bx1)/2-W/2/K; OY=(by0+by1)/2-H/2/K;
+  draw();
+}
+const toScreen=(lat,lon)=>{ const p=proj(lat,lon); return { x:(p.x-OX)*K, y:(p.y-OY)*K }; };
+function getTile(z,x,y){
+  const key=`${z}/${x}/${y}`;
+  if(tiles.has(key)) return tiles.get(key);
+  const img=new Image(); img.crossOrigin="anonymous";
+  const t={img,ok:false,bad:false};
+  img.onload=()=>{ t.ok=true; tilesOK++; draw(); };
+  img.onerror=()=>{ t.bad=true; tilesBad++; updateMapInfo(); };
+  img.src=`https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
+  tiles.set(key,t); return t;
+}
+function updateMapInfo(){
+  $("mapInfo").textContent = tilesOK>0 ? "© OpenStreetMap contributors" : "Offline route map (tiles unavailable)";
+}
+function drawTiles(){
+  const z=Math.max(10,Math.min(17,Math.round(TZ+Math.log2(K)))), f=Math.pow(2,z-TZ);
+  const size=256/f; // tile size in z13 world px
+  const x0=Math.floor(OX/size), x1=Math.floor((OX+W/K)/size);
+  const y0=Math.floor(OY/size), y1=Math.floor((OY+H/K)/size);
+  if((x1-x0+1)*(y1-y0+1)>60) return;
+  ctx.save(); ctx.globalAlpha=.55; try{ ctx.filter="invert(1) hue-rotate(180deg) brightness(.85)"; }catch(e){}
+  for(let tx=x0;tx<=x1;tx++) for(let ty=y0;ty<=y1;ty++){
+    const t=getTile(z,tx,ty);
+    if(t.ok) ctx.drawImage(t.img,(tx*size-OX)*K,(ty*size-OY)*K,size*K+1,size*K+1);
+  }
+  ctx.restore();
+}
+function drawGrid(){
+  ctx.strokeStyle="rgba(120,150,200,.12)"; ctx.lineWidth=1; ctx.fillStyle="rgba(159,176,207,.55)"; ctx.font="10px sans-serif";
+  const step=0.02;
+  const tl={lat:0,lon:0};
+  const lonMin=(OX/WORLD)*360-180, lonMax=((OX+W/K)/WORLD)*360-180;
+  const latOf=y=>{ const n=Math.PI-2*Math.PI*y/WORLD; return 180/Math.PI*Math.atan(0.5*(Math.exp(n)-Math.exp(-n))); };
+  const latMax=latOf(OY), latMin=latOf(OY+H/K);
+  for(let lo=Math.ceil(lonMin/step)*step; lo<=lonMax; lo+=step){
+    const x=toScreen(22.5,lo).x; ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); ctx.fillText(lo.toFixed(2)+"°E",x+3,H-4);
+  }
+  for(let la=Math.ceil(latMin/step)*step; la<=latMax; la+=step){
+    const y=toScreen(la,88.4).y; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); ctx.fillText(la.toFixed(2)+"°N",4,y-3);
+  }
+}
+function dot(x,y,r,fill,stroke,lw){
+  ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fillStyle=fill; ctx.fill();
+  if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=lw||2; ctx.stroke(); }
+}
+let shownPos=null, truePos=null;
+function draw(){
+  if(!W) return;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  ctx.fillStyle="#0b1425"; ctx.fillRect(0,0,W,H);
+  drawTiles(); drawGrid();
+  // route
+  ctx.lineWidth=4; ctx.strokeStyle="#36c6f0"; ctx.lineJoin="round"; ctx.beginPath();
+  ROUTE.forEach((p,i)=>{ const s=toScreen(p.lat,p.lon); i?ctx.lineTo(s.x,s.y):ctx.moveTo(s.x,s.y); }); ctx.stroke();
+  // trail
+  if(S.trail.length>1){
+    ctx.lineWidth=3; ctx.strokeStyle="rgba(255,75,216,.8)"; ctx.beginPath();
+    S.trail.forEach((p,i)=>{ const s=toScreen(p.lat,p.lon); i?ctx.lineTo(s.x,s.y):ctx.moveTo(s.x,s.y); }); ctx.stroke();
+  }
+  // checkpoints
+  ROUTE.forEach((p,i)=>{
+    const s=toScreen(p.lat,p.lon), c=i===0?"#21c58b":(i===3?"#ffba57":"#517cff");
+    dot(s.x,s.y,10,c,"#dceeff",2);
+    ctx.fillStyle="#fff"; ctx.font="bold 11px sans-serif"; ctx.textAlign="center"; ctx.textBaseline="middle"; ctx.fillText(p.name,s.x,s.y+.5);
+    ctx.textAlign="left"; ctx.textBaseline="alphabetic"; ctx.font="12px sans-serif"; ctx.fillStyle="#eaf0ff";
+    const txt=p.label.replace(/ \(.*\)/,"");
+    const w=ctx.measureText(txt).width;
+    const lx=s.x+14+w>W?s.x-14-w:s.x+14;
+    ctx.fillStyle="rgba(10,16,32,.75)"; ctx.fillRect(lx-3,s.y-9,w+6,16);
+    ctx.fillStyle="#eaf0ff"; ctx.fillText(txt,lx,s.y+4);
+  });
+  // deviation indicator
+  if(S.deviation && truePos && shownPos){
+    const a=toScreen(truePos.lat,truePos.lon), b=toScreen(shownPos.lat,shownPos.lon);
+    ctx.setLineDash([5,6]); ctx.strokeStyle="#ff6b81"; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); ctx.setLineDash([]);
+    dot(a.x,a.y,4,"#9fe8c4");
+  }
+  // drone
+  const dp=shownPos||ROUTE[0], d=toScreen(dp.lat,dp.lon);
+  dot(d.x,d.y,9,"#ff4bd8","#fff",2);
+}
+window.addEventListener("resize",resize);
+
+/* ---------- UI update ---------- */
+function update(){
+  [0,1,2,3].forEach(i=>{ if(S.dist>=cum[i]) S.visited.add(ROUTE[i].name); });
+  if(S.running||S.dist>0) S.pickedUp=true;
+  if(S.dist>=TOTAL){ S.complete=true; S.running=false; }
+  const returning=S.dist>=ONE_WAY;
+  truePos=positionAt(S.dist);
+  shownPos=S.deviation?{lat:truePos.lat+DEVIATION_LAT,lon:truePos.lon}:truePos;
+  const offMetres=S.deviation?haversine(truePos,shownPos):0;
+  if(S.running||S.dist>0){
+    const last=S.trail[S.trail.length-1];
+    if(!last||last.lat!==shownPos.lat||last.lon!==shownPos.lon){ S.trail.push({lat:shownPos.lat,lon:shownPos.lon}); if(S.trail.length>3000) S.trail.shift(); }
+  }
+  setText("lat",(S.dist>0||S.running)?shownPos.lat.toFixed(6):"—");
+  setText("lon",(S.dist>0||S.running)?shownPos.lon.toFixed(6):"—");
+  setText("journey",S.complete?"Complete":(returning?"Return":"Outbound"));
+  setText("speed",`${S.running?SPEED.toFixed(1):"0.0"} m/s`);
+  setText("altitude",S.running?`${ALTITUDE} m`:(S.dist>0&&!S.complete&&!S.failed?`${ALTITUDE} m`:"0 m"));
+  setText("distance",`${Math.round(ONE_WAY)} m`);
+  setText("covered",`${Math.round(S.dist)} m`);
+  setText("progress",`${Math.round(S.dist/TOTAL*100)}%`);
+  if(S.dist>0||S.running) setText("updated",new Date().toLocaleTimeString());
+
+  // Battery
+  const p=params(), pw=powerNow(), remWh=remainingWh(), pct=Math.max(0,remWh/p.cap*100);
+  const needS=(TOTAL-S.dist)/SPEED, needWh=pw*needS/3600;
+  setText("batPct",`${pct.toFixed(1)}%`);
+  setText("batWh",`${remWh.toFixed(1)} / ${p.cap.toFixed(0)} Wh`);
+  const fill=$("batFill"); fill.style.width=`${pct}%`;
+  fill.style.background=pct<=p.crit?"#e5484d":(pct<=p.low?"#f5a524":"#21c58b");
+  setText("powerNow",`${pw.toFixed(0)} W`);
+  setText("drainRate",`${(pw/p.cap/60*100).toFixed(2)} %/min`);
+  setText("timeLeft",fmtTime(remWh*3600/Math.max(pw,1)));
+  setText("needWh",S.complete?"0.0 Wh":`${needWh.toFixed(1)} Wh`);
+
+  // Alerts
+  if(!S.complete&&!S.failed&&pct<=0){ S.failed=true; S.running=false; }
+  const box=$("alert"); let msg='Ready. Press "Start mission".', cls="";
+  if(S.failed){ msg="BATTERY DEPLETED: simulated emergency landing. Press Reset to start again."; cls="warning"; }
+  else if(S.complete) msg="Mission complete: returned to launch station A.";
+  else if(S.deviation&&offMetres>DEVIATION_LIMIT){ msg=`DEVIATION ALERT: drone is about ${Math.round(offMetres)} m off the planned route!`; cls="warning"; }
+  else if(pct<=p.crit&&S.dist>0){ msg=`CRITICAL BATTERY (${pct.toFixed(0)}%): below reserve. Land or return immediately.`; cls="warning"; }
+  else if(needWh>remWh&&S.dist>0){ msg="WARNING: remaining battery is not enough to finish the mission."; cls="warning"; }
+  else if(pct<=p.low&&S.dist>0){ msg=`Low battery (${pct.toFixed(0)}%).`; cls="caution"; }
+  else if(S.running) msg=returning?"On route · returning to launch station A.":"On route · heading to Peerless Hospital (D).";
+  else if(S.dist>0) msg="Mission paused.";
+  box.textContent=msg; box.className=cls;
+
+  $("checkpoints").innerHTML=ROUTE.map(r=>{
+    const v=S.visited.has(r.name);
+    return `<div class="checkpoint"><span><b>${r.name}</b> — ${r.label}</span><span class="${v?"ok":"pending"}">${v?"Reached":"Pending"}</span></div>`;
+  }).join("");
+  setText("packageStatus",`Pickup at A: ${S.pickedUp?"recorded (simulated)":"pending"} · Handover at D: ${S.handover?"confirmed (simulated)":"pending"}`);
+  $("handoverBtn").disabled=!(S.visited.has("D")&&returning)||S.handover;
+  setText("missionEnd",S.complete?"Returned to A. Mission complete.":(S.failed?"Mission failed: battery depleted.":""));
+  $("startBtn").disabled=S.running||S.complete||S.failed;
+  $("startBtn").textContent=S.dist>0&&!S.complete?"▶ Resume mission":"▶ Start mission";
+  $("pauseBtn").disabled=!S.running;
+  $("deviationBtn").textContent=S.deviation?"Stop deviation test":"Test route deviation";
+  draw();
+}
+
+/* ---------- Loop ---------- */
+setInterval(()=>{
+  if(!S.running) return;
+  const now=performance.now(), dt=Math.min((now-S.lastTick)/1000,0.5); S.lastTick=now;
+  const simDt=dt*Number($("scaleSel").value);
+  S.usedWh+=powerNow()*simDt/3600;            // battery drain
+  S.dist=Math.min(TOTAL,S.dist+SPEED*simDt);
+  update();
+},100);
+
+/* ---------- Controls ---------- */
+$("startBtn").onclick=()=>{ if(S.complete||S.failed) return; S.running=true; S.lastTick=performance.now(); update(); };
+$("pauseBtn").onclick=()=>{ S.running=false; update(); };
+$("resetBtn").onclick=()=>{
+  Object.assign(S,{dist:0,running:false,complete:false,deviation:false,visited:new Set(),handover:false,pickedUp:false,usedWh:0,failed:false,trail:[]});
+  update(); setText("updated","No update yet"); setText("lat","—"); setText("lon","—");
+};
+$("deviationBtn").onclick=()=>{ S.deviation=!S.deviation; update(); };
+$("handoverBtn").onclick=()=>{ S.handover=true; update(); setText("packageStatus","Handover confirmation recorded (simulated). Package delivered at D."); };
+["pCap","pCruise","pPayload","pWind","pDrain","pStart","pLow","pCrit"].forEach(id=>$(id).addEventListener("input",()=>update()));
+
+resize(); update();
+setText("updated","No update yet"); setText("lat","—"); setText("lon","—");
+setInterval(updateMapInfo,2000);
+</script>
+</body>
+</html>
